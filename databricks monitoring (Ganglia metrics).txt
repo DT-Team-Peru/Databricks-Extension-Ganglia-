@@ -1,0 +1,64 @@
+#Install Dynatrace OneAgent on Azure Databricks Cluster
+#Description: This script can help to install Dynatrace on infra-only mode to get infrastructure visibility
+
+#Setting up variables
+import requests
+print('Setting up variables')
+oa_pass_token_databricks = dbutils.secrets.get(scope = "secretScopeKeyVault", key = "dynatraceapisecret")
+dt_tenant = 'XXXXXX.live.dynatrace.com' # Example: abc1234.live.dynatrace.com
+
+#Beginning file download with requests
+print('Beginning file download with requests')
+url = 'https://'+str(dt_tenant)+'/api/v1/deployment/installer/agent/unix/default/latest?Api-Token='+str(oa_pass_token_databricks) +'&arch=x86&flavor=default'
+print(url)
+r = requests.get(url)
+print(r)
+
+with open('/dbfs/dynatrace/oneagent.sh', 'wb') as f:
+    f.write(r.content)
+#Validation file downloaded
+if r.status_code == 200 :
+  print('File downloaded successfully')
+else :
+  print('Failed download')
+
+#List OneAgent downloaded:
+print('List OneAgent downloaded')
+dbutils.fs.ls("dbfs:/dynatrace/oneagent.sh")
+
+
+#Beginning extension download with requests
+print('Beginning extension download with requests')
+url = 'https://'+str(dt_tenant)+'/api/config/v1/extensions/custom.python.databricks_ganglia/binary?Api-Token='+str(oa_pass_token_databricks)
+print(url)
+r = requests.get(url)
+print(r)
+with open('/dbfs/dynatrace/custom_python_databricks_ganglia.zip', 'wb') as f:
+    f.write(r.content)
+#Validation extension file downloaded
+if r.status_code == 200 :
+  print('File downloaded successfully')
+else :
+  print('Failed download')
+
+#List Extension downloaded:
+print('List extension downloaded')
+dbutils.fs.ls("dbfs:/dynatrace/custom_python_databricks_ganglia.zip")
+
+#Writing Script to Install Dynatrace OneAgent infra-only mode
+dbutils.fs.put("/dynatrace/init-oneagent.sh","""
+#!/bin/bash
+chmod u+x /dbfs/dynatrace/oneagent.sh
+wait
+/bin/sh /dbfs/dynatrace/oneagent.sh --set-infra-only=true --set-host-group=DATABRICKS --set-app-log-content-access=true
+wait
+unzip /dbfs/dynatrace/custom_python_databricks_ganglia.zip -d /opt/dynatrace/oneagent/plugin_deployment/
+wait
+cat <<EOF | sudo tee /etc/databricks_env
+DB_WS_URL=https://XXXXXXXXXXXXXXX.azuredatabricks.net
+DB_WS_TOKEN=XXXXXXXXXXXXXXXX
+EOF""", True)
+
+#List element uploaded
+print('Next Step: Configure this script uploaded in DBFS:/ as Init Script in Cluster Advanced Options')
+dbutils.fs.ls("dbfs:/dynatrace/init-oneagent.sh")
